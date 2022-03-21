@@ -1,0 +1,13 @@
+{
+    "started_at": "starttime",
+    "ended_at": "stoptime",
+    "start_station_name": "start station name",
+    "start_station_id": "start station id",
+    "end_station_name": "end station name",
+    "end_station_id": "end station id",
+    "start_lat": "start station latitude",
+    "start_lng": "start station longitude",
+    "end_lat": "end station latitude",
+    "end_lng": "end station longitude",
+    "member_casual": "usertype"
+}
