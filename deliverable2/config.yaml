@@ -1,0 +1,155 @@
+input:
+  broker:
+    inputs:
+      - aws_s3:
+          bucket: "bikeshare-unziped-data2"
+          prefix: "raw/"
+          region: us-east-1
+          codec: all-bytes
+          credentials:
+            profile: "default"
+
+  processors:
+#    - unarchive:
+#        format: zip
+    - unarchive:
+        format: csv
+
+#
+pipeline:
+  processors:
+    - branch:
+        processors:
+          - http:
+              url: 'https://meteostat.p.rapidapi.com/stations/hourly?station=KJRB0&start=${! json("started_at").slice(0, 10) | json("starttime").slice(0, 10) }&end=${! json("ended_at").slice(0, 10) | json("stoptime").slice(0, 10) }&tz=Europe%2FBerlin'
+              verb: GET
+              headers:
+                X-RapidAPI-Host: meteostat.p.rapidapi.com
+                X-RapidAPI-Key: cdf288aee7msh3b5a5bc67728e99p11697cjsnae8ad4816623
+              parallel: true
+        result_map: root.weather = this.data
+
+    - bloblang: |
+          root = this
+          let foo = this.started_at.slice(0, 13) | this.starttime.slice(0, 13)
+          root.weather = this.weather.filter(weather -> weather.time.slice(0, 13) == $foo)
+
+    - bloblang: |
+        root.id = uuid_v4()
+        root.bikeid = this.bikeid | ""
+        root.ride_id = this.ride_id | ""
+        root.rideable_type = this.rideable_type | ""
+        root.started_at = this.started_at | this.starttime
+        root.ended_at = this.ended_at | this.stoptime
+        root.trip_duration = this.tripduration | (this.ended_at.parse_timestamp_strptime("%Y-%m-%d %H:%M:%S").format_timestamp_unix().number() - this.started_at.parse_timestamp_strptime("%Y-%m-%d %H:%M:%S").format_timestamp_unix().number())
+        root.gender = this.gender | ""
+        root.birth_year = this."birth year" | ""
+        root.start_station_name = this.start_station_name | this."start station name"
+        root.start_station_id = this.start_station_id | this."start station id"
+        root.end_station_name = this.end_station_name | this."end station name"
+        root.end_station_id =  this.end_station_id | this."end station id"
+        root.start_lat = this.start_lat| this."start station latitude"
+        root.start_lng = this.start_lng | this."start station longitude"
+        root.end_lat = this.end_lat | this."end station latitude"
+        root.end_lng = this.end_lng | this."end station longitude"
+        root.member_casual = this.member_casual | this.usertype
+        root.weather = this.weather
+
+    - metadata:
+        key: file_key
+        operator: set
+        value: curated/hour/${!json("started_at").slice(10, 13) | json("starttime").slice(10, 13) }/${! uuid_v4() }-${! timestamp_unix_nano() }.csv
+
+    - metadata:
+        key: file_key2
+        operator: set
+        value: curated/location/${!json("start_station_name") | json("start station name")}/${! uuid_v4() }-${! timestamp_unix_nano() }.csv
+
+
+    - sql_raw:
+        driver: postgres
+        dsn: postgres://postgres:password@localhost:5432/datadb?sslmode=disable
+        query: "CREATE TABLE IF NOT EXISTS tap_spreadsheets_anywhere.hydrated_standard_schema (
+                  id uuid PRIMARY KEY,
+                  bikeid VARCHAR ( 255 ),
+                  birth_year VARCHAR ( 255 ),
+                  end_lat VARCHAR ( 255 ),
+                  end_lng VARCHAR ( 255 ),
+                  end_station_id VARCHAR ( 255 ),
+                  end_station_name VARCHAR ( 255 ),
+                  ended_at VARCHAR ( 255 ),
+                  gender VARCHAR ( 255 ),
+                  member_casual VARCHAR ( 255 ),
+                  ride_id VARCHAR ( 255 ),
+                  rideable_type VARCHAR ( 255 ),
+                  start_lat VARCHAR ( 255 ),
+                  start_lng VARCHAR ( 255 ),
+                  start_station_id VARCHAR ( 255 ),
+                  start_station_name VARCHAR ( 255 ),
+                  started_at VARCHAR ( 255 ),
+                  trip_duration VARCHAR ( 255 ),
+                  weather jsonb
+              );"
+        exec_only: true
+
+    - sql_insert:
+        driver: postgres
+        dsn: postgres://postgres:password@localhost:5432/datadb?sslmode=disable
+        table: tap_spreadsheets_anywhere.hydrated_standard_schema
+        columns: [ id, bikeid, birth_year, end_lat, end_lng, end_station_id, end_station_name, ended_at, gender, member_casual, ride_id, rideable_type, start_lat, start_lng, start_station_id, start_station_name, started_at, trip_duration, weather ]
+        args_mapping: |
+          root = [
+            uuid_v4(),
+            this.bikeid,
+            this.birth_year,
+            this.end_lat,
+            this.end_lng,
+            this.end_station_id,
+            this.end_station_name,
+            this.ended_at,
+            this.gender,
+            this.member_casual,
+            this.ride_id,
+            this.rideable_type,
+            this.start_lat,
+            this.start_lng,
+            this.start_station_id,
+            this.start_station_name,
+            this.started_at,
+            this.trip_duration,
+            this.weather.string()
+          ]
+
+    - bloblang: |
+        map escape_csv {
+          root = if this.re_match("[\"\n,]+") {
+            "\"" + this.replace("\"", "\"\"") + "\""
+          } else {
+            this
+          }
+        }
+
+        let kvs = this.key_values().sort_by(v -> v.key)
+        let header = $kvs.map_each(kv -> kv.key.apply("escape_csv")).join(",") + "\n"
+        root = $header + $kvs.map_each(kv -> kv.value.string()).join(",")
+
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+
+    - aws_s3:
+        bucket: "bikeshare-unziped-data2"
+        region: us-east-1
+        path: ${!metadata:file_key}
+        max_in_flight: 64
+
+    - aws_s3:
+        bucket: "bikeshare-unziped-data2"
+        region: us-east-1
+        path: ${!metadata:file_key2}
+        max_in_flight: 64
+
+        #    - archive:
+        #        format: zip

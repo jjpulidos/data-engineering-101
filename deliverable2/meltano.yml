@@ -1,0 +1,54 @@
+version: 1
+default_environment: dev
+project_id: be04f4e8-65dc-4101-b53d-746b3ae06ab8
+plugins:
+  extractors:
+  - name: tap-spreadsheets-anywhere
+    capabilities:
+    - catalog
+    - discover
+    - properties
+    - state
+    config:
+      tables:
+        - path: s3://bikeshare-unziped-data2
+          name: hydrated_standard_schema_meltano
+          pattern: "curated"
+          start_date: "2015-05-01T00:00:00Z"
+          key_properties: [ id ]
+          format: csv
+
+        - path: s3://bikeshare-unziped-data2
+          name: second_schema
+          pattern: "202202"
+          start_date: "2015-05-01T00:00:00Z"
+          key_properties: [ ride_id ]
+          format: csv
+          schema_overrides:
+            start_station_id:
+              type: [ "null", "string" ]
+            end_station_id:
+              type: ["null", "string"]
+
+        - path: s3://bikeshare-unziped-data2
+          name: first_schema
+          pattern: "201906"
+          start_date: "2015-05-01T00:00:00Z"
+          key_properties: [bikeid]
+          format: csv
+
+  loaders:
+    - name: target-postgres
+      variant: transferwise
+      pip_url: pipelinewise-target-postgres
+      config:
+        host: localhost
+        port: 5432
+        user: postgres
+        dbname: datadb
+
+
+environments:
+- name: dev
+- name: staging
+- name: prod

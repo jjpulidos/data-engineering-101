@@ -78,7 +78,7 @@ target/
 celerybeat-schedule
 
 # dotenv
-.env
+Deliverable1/.env
 
 # virtualenv
 venv/
@@ -153,3 +153,5 @@ datalake/
 unzip/
 db/
 .DS_Store
+.venv*/
+deliverable2/csv/*
