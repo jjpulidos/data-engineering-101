@@ -25,7 +25,7 @@ pipeline:
               verb: GET
               headers:
                 X-RapidAPI-Host: meteostat.p.rapidapi.com
-                X-RapidAPI-Key: cdf288aee7msh3b5a5bc67728e99p11697cjsnae8ad4816623
+                X-RapidAPI-Key: <key>
               parallel: true
         result_map: root.weather = this.data
 
